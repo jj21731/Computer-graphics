@@ -7,14 +7,13 @@
 #include <glm/glm.hpp>
 #include<CanvasPoint.h>
 #include<Colour.h>
-#include <CanvasTriangle.h>
+#include<TextureMap.h>
 
 
 #define WIDTH 320
 #define HEIGHT 240
 
-
-void drawline(CanvasPoint to, CanvasPoint from, CanvasPoint numberOfsteps, Colour colour, DrawingWindow &window) {
+void drawline(CanvasPoint to, CanvasPoint from, Colour colour, DrawingWindow &window) {
     float xDiff = to.x - from.x;
     float yDiff = to.y - from.y;
     float numSteps = std::max(std::abs(xDiff), std::abs(yDiff));
@@ -39,24 +38,24 @@ void line(DrawingWindow &window){
     CanvasPoint startpoint2 = {0,0};
     CanvasPoint endpoint2 = {160,120};
 
-    drawline(endpoint1,startpoint1,CanvasPoint(0,0),Colourline1,window);
-    drawline(endpoint2,startpoint2,CanvasPoint(0,0),Colourline1,window);
+    drawline(endpoint1,startpoint1,Colourline1,window);
+    drawline(endpoint2,startpoint2,Colourline1,window);
     CanvasPoint startpoint3 = {320,0};
     CanvasPoint endpoint3 = {160,120};
 
-    drawline(endpoint3,startpoint3,CanvasPoint(0,0),Colourline1,window);
+    drawline(endpoint3,startpoint3,Colourline1,window);
 
     CanvasPoint startpoint4 = {320/3,120};
     CanvasPoint endpoint4 = {2 * 320/3,120};
 
-    drawline(endpoint4,startpoint4,CanvasPoint(0,0),Colourline1,window);
+    drawline(endpoint4,startpoint4,Colourline1,window);
 
 }
 
-void drawtriangle(CanvasTriangle triangle,CanvasPoint numberOfsteps, Colour colour, DrawingWindow &window){
-    drawline(triangle.v0(), triangle.v1(), CanvasPoint(0,0), colour, window);
-    drawline(triangle.v1(), triangle.v2(), CanvasPoint(0,0), colour, window);
-    drawline(triangle.v2(), triangle.v0(), CanvasPoint(0,0), colour, window);
+void drawtriangle(CanvasTriangle triangle, Colour colour, DrawingWindow &window){
+    drawline(triangle.v0(), triangle.v1(), colour, window);
+    drawline(triangle.v1(), triangle.v2(), colour, window);
+    drawline(triangle.v2(), triangle.v0(), colour, window);
 }
 CanvasTriangle generateRandomTriangle(int width = WIDTH, int height = HEIGHT) {
     CanvasPoint v0 = CanvasPoint(rand() % width, rand() % height);
@@ -72,6 +71,158 @@ Colour trianglecoulour(int width = WIDTH, int height = HEIGHT){
     return Colour(red, green, blue);
 
 }
+
+
+
+void fillTriangle(CanvasTriangle triangle, Colour colour,Colour outlineColour, DrawingWindow& window) {
+    CanvasPoint v0 = triangle.v0();
+    CanvasPoint v1 = triangle.v1();
+    CanvasPoint v2 = triangle.v2();
+
+    // 按垂直位置排序顶点
+    if (v0.y > v1.y) std::swap(v0, v1);
+    if (v0.y > v2.y) std::swap(v0, v2);
+    if (v1.y > v2.y) std::swap(v1, v2);
+
+    CanvasPoint topVertex = v0;
+    CanvasPoint middleVertex = v1;
+    CanvasPoint bottomVertex = v2;
+
+    // 计算左边的斜率
+    float Slope1 = (middleVertex.x - topVertex.x) / (middleVertex.y - topVertex.y);
+    // 计算右边的斜率
+    float Slope2 = (bottomVertex.x - topVertex.x) / (bottomVertex.y - topVertex.y);
+
+    // 初始化左边和右边的x坐标
+    float currentX1 = topVertex.x;
+    float currentX2 = topVertex.x;
+
+    // 处理上半部分三角形
+    for (int y = topVertex.y; y <= middleVertex.y; ++y) {
+        drawline(CanvasPoint(currentX1, y), CanvasPoint(currentX2, y), colour, window);
+        currentX1 += Slope1;
+        currentX2 += Slope2;
+    }
+
+    // 更新左边的斜率和x坐标
+    Slope1 = (bottomVertex.x - middleVertex.x) / (bottomVertex.y - middleVertex.y);
+    currentX1 = middleVertex.x;
+
+    // 处理下半部分三角形
+    for (int y = middleVertex.y + 1; y <= bottomVertex.y; ++y) {
+        drawline(CanvasPoint(currentX1, y), CanvasPoint(currentX2, y), colour, window);
+        currentX1 += Slope1;
+        currentX2 += Slope2;
+    }
+    drawline(v0, v1, outlineColour, window);
+    drawline(v1, v2, outlineColour, window);
+    drawline(v2, v0, outlineColour, window);
+}
+
+void drawTexturedTriangle(CanvasTriangle triangle, TextureMap texture, DrawingWindow& window) {
+    CanvasPoint v0 = triangle.v0();
+    CanvasPoint v1 = triangle.v1();
+    CanvasPoint v2 = triangle.v2();
+
+    // Sort vertices by their y-coordinates
+    if (v0.y > v1.y) {
+        std::swap(v0, v1);
+    }
+    if (v0.y > v2.y) {
+        std::swap(v0, v2);
+    }
+    if (v1.y > v2.y) {
+        std::swap(v1, v2);
+    }
+
+    CanvasPoint top = v0;
+    CanvasPoint middle = v1;
+    CanvasPoint bottom = v2;
+
+    // Calculate slopes for the top and bottom edges
+    float slope1 = (middle.x - top.x) / (middle.y - top.y);
+    float slope2 = (bottom.x - top.x) / (bottom.y - top.y);
+
+    float left_x = top.x;
+    float right_x = top.x;
+
+    // First part of triangle (top to middle)
+    for (int y = top.y; y <= middle.y; ++y) {
+        // Calculate the corresponding texturePoints for CanvasPoints
+        float t1 = (y - top.y) / (middle.y - top.y); //插值系数，用来插值top和middle两个点之间的值
+        float t2 = (y - top.y) / (bottom.y - top.y); //bottom和top两个点之间的值
+        float texX1 = top.texturePoint.x + (middle.texturePoint.x - top.texturePoint.x) * t1;
+        float texX2 = top.texturePoint.x + (bottom.texturePoint.x - top.texturePoint.x) * t2;
+        float texY1 = top.texturePoint.y + (middle.texturePoint.y - top.texturePoint.y) * t1;
+        float texY2 = top.texturePoint.y + (bottom.texturePoint.y - top.texturePoint.y) * t2;
+
+        // Draw the horizontal line with texture mapping
+        for (int x = round(left_x); x <= round(right_x); ++x) {
+            // Interpolate t based on the current x position
+            float t = (x - left_x) / (right_x - left_x);
+
+            // Calculate the interpolated texture coordinates
+            float texXf = texX1 + (texX2 - texX1) * t;
+            float texYf = texY1 + (texY2 - texY1) * t;
+
+            // Ensure that texXf and texYf are within the texture dimensions
+            if (texXf >= 0 && texXf < texture.width && texYf >= 0 && texYf < texture.height) {
+                // Convert texXf and texYf to integers for indexing
+                int texX = static_cast<int>(texXf);
+                int texY = static_cast<int>(texYf);
+
+                // Calculate the index to access the texture pixel
+                int index = texY * texture.width + texX;
+                window.setPixelColour(x, y, texture.pixels[index]);
+            }
+        }
+
+        left_x += slope1;
+        right_x += slope2;
+    }
+
+    // Initialize left and right x-coordinates for the bottom edge
+    left_x = middle.x;
+    float slope3 = (bottom.x - middle.x) / (bottom.y - middle.y);
+
+    // Second part of triangle (middle to bottom)
+    for (int y = middle.y + 1; y <= bottom.y; ++y) {
+        // Calculate the corresponding texture coordinates for Canvas Points
+        float t1 = (y - middle.y) / (bottom.y - middle.y);
+        float t2 = (y - top.y) / (bottom.y - top.y);
+        float texX1 = middle.texturePoint.x + (bottom.texturePoint.x - middle.texturePoint.x) * t1;
+        float texX2 = top.texturePoint.x + (bottom.texturePoint.x - top.texturePoint.x) * t2;
+        float texY1 = middle.texturePoint.y + (bottom.texturePoint.y - middle.texturePoint.y) * t1;
+        float texY2 = top.texturePoint.y + (bottom.texturePoint.y - top.texturePoint.y) * t2;
+
+        // Draw the horizontal line with texture mapping
+        for (int x = round(left_x); x <= round(right_x); ++x) {
+            // Interpolate t based on the current x position
+            float t = (x - left_x) / (right_x - left_x);
+
+            // Calculate the interpolated texture coordinates
+            float texXf = texX1 + (texX2 - texX1) * t;
+            float texYf = texY1 + (texY2 - texY1) * t;
+
+            // Ensure that texXf and texYf are within the texture dimensions
+            if (texXf >= 0 && texXf < texture.width && texYf >= 0 && texYf < texture.height) {
+                // Convert texXf and texYf to integers for indexing
+                int texX = static_cast<int>(texXf);
+                int texY = static_cast<int>(texYf);
+
+                // Calculate the index to access the texture pixel
+                int index = texY * texture.width + texX;
+                window.setPixelColour(x, y, texture.pixels[index]);
+            }
+        }
+        left_x += slope3;
+        right_x += slope2;
+    }
+    drawtriangle(triangle, Colour{255, 255, 255}, window);
+}
+
+
+
 
 
 //--------task4---------
@@ -237,15 +388,69 @@ int main(int argc, char *argv[]) {
         if (drawTriangle) {
             CanvasTriangle triangle = generateRandomTriangle();
             Colour color = trianglecoulour();
-            drawtriangle(triangle, CanvasPoint(0, 0), color, window);
+            drawtriangle(triangle, color, window);
             drawTriangle = false; // 绘制完成后将标志设置为 false
         }
 
         // 渲染图像和其他逻辑
         // ...
+        bool drawRandomFillTriangle = false;
+        Colour randomOutlineColour = trianglecoulour();
 
-        // 渲染帧
-        window.renderFrame();
+// 主循环中的事件处理
+        while (true) {
+            // 处理事件
+            SDL_Event event;
+            if (SDL_PollEvent(&event)) {
+                if (event.type == SDL_QUIT) {
+                    break; // 退出循环
+                } else if (event.type == SDL_KEYDOWN) {
+                    if (event.key.keysym.sym == SDLK_q) {
+                        break; // 按下 'q' 键退出循环
+                    } else if (event.key.keysym.sym == SDLK_f) {
+                        drawRandomFillTriangle = true; // 按下 'f' 键设置标志以绘制随机填充三角形
+                    }
+                    // 处理其他事件
+                }
+
+                // 其他事件处理代码
+            }
+
+            // 清空屏幕或执行其他渲染逻辑
+            // ...
+
+            // 如果标志为 true，绘制随机填充三角形
+            if (drawRandomFillTriangle) {
+                CanvasTriangle randomTriangle = generateRandomTriangle();
+                Colour randomColour = trianglecoulour();
+                fillTriangle(randomTriangle, randomColour, randomOutlineColour, window);
+                drawRandomFillTriangle = false; // 绘制完成后将标志设置为 false
+            }
+            TextureMap texture = TextureMap("/Users/lil/Desktop/CG2023-main/RedNoise/texture.ppm");
+
+            // Define the vertices of the triangle
+            CanvasPoint p1(160, 10);
+            CanvasPoint p2(300, 230);
+            CanvasPoint p3(10, 150);
+            p1.texturePoint = TexturePoint(195,5);
+            p2.texturePoint = TexturePoint(395,380);
+            p3.texturePoint = TexturePoint(65,330);
+
+
+
+
+            // Create a CanvasTriangle using the specified vertices
+            CanvasTriangle triangle(p1, p2, p3);
+
+            // Render the textured triangle
+            drawTexturedTriangle(triangle,texture,window);
+
+
+
+
+            // 渲染帧
+            window.renderFrame();
+        }
+        return 0;
     }
-    return 0;
 }
