@@ -9,6 +9,7 @@
 #include<Colour.h>
 #include<TextureMap.h>
 #include <glm/gtc/matrix_transform.hpp>
+#include<ModelTriangle.h>
 
 #include <string>
 #include<sstream>
@@ -500,89 +501,55 @@ void drawRGBColour(DrawingWindow &window){
 //}
 
 
-void loadOBJ(const std::string& filename, float scalingFactor,
-             std::vector<std::vector<float>>& vertices,
-             std::vector<std::vector<int>>& faces,
-             std::vector<std::tuple<int,int,int>>& faceColours,
-             const std::unordered_map<std::string, std::tuple<int,int,int>>& materialMap) {
+std::vector<ModelTriangle> loadObjFile(const std::string &filename, float scale, std::unordered_map<std::string, Colour> materials) {
+    std::vector<glm::vec3> vertices;
+    std::vector<ModelTriangle> faces;
 
-    std::ifstream file(filename);
-
-    if (!file.is_open()) {
-        std::cerr << "Error: Unable to open OBJ file." << std::endl;
-        return;
-    }
-    std::tuple<int,int,int> currentColour = std::make_tuple(255,255,255);
-    std::string line;
-    while (std::getline(file, line)) {
-        std::istringstream iss(line);
-        std::string type;
-        iss >> type;
-
-        if (type == "v") {
-            std::vector<float> vertex(3);
-            iss >> vertex[0] >> vertex[1] >> vertex[2];
-            vertex[0] *= scalingFactor;
-            vertex[1] *= scalingFactor;
-            vertex[2] *= scalingFactor;
-            vertices.push_back(vertex);
-        } else if(type == "usemtl") {
-            std::string materialName;
-            iss >> materialName;
-            currentColour = materialMap.at(materialName);  // 加上分号
-
-        } else if (type == "f") {
-            std::vector<int> face;
-            std::string token;
-            while (iss >> token) {
-                size_t pos = token.find('/');
-                if (pos != std::string::npos) {
-                    token = token.substr(0, pos);  // 取/之前的索引
-                }
-                face.push_back(stoi(token));
-            }
-            faces.push_back(face);
-            faceColours.push_back(currentColour);
+    std::ifstream inputStr(filename, std::ifstream::in);
+    std::string nextLine;
+    Colour colour;
+    while (std::getline(inputStr, nextLine)) { //extracts from inputStr and stores into nextLine
+        std::vector<std::string> vector = split(nextLine, ' '); //split line by spaces
+        if (vector[0] == "usemtl") {
+            colour = materials[vector[1]];
+        }else if (vector[0] == "v") {
+            vertices.push_back(glm::vec3(
+                    std::stof(vector[1]) * scale, //string to float
+                    std::stof(vector[2]) * scale,
+                    std::stof(vector[3]) * scale
+            ));
+        }
+        else if (vector[0] == "f") { //indexed from 1
+            faces.push_back(ModelTriangle(
+                    vertices[std::stoi(split(vector[1], '/')[0]) - 1],
+                    vertices[std::stoi(split(vector[2], '/')[0]) - 1],
+                    vertices[std::stoi(split(vector[3], '/')[0]) - 1],
+                    colour
+            ));
         }
     }
+    inputStr.close();
+    return faces;
 }
-std::unordered_map<std::string, std::tuple<int, int, int>> loadMTL(const std::string& filename) {
-    std::ifstream file(filename);
-    std::unordered_map<std::string, std::tuple<int, int, int>> materialMap;
+std::unordered_map<std::string, Colour> loadMtlFile(const std::string &filename) {
+    std::unordered_map<std::string, Colour> colours;
 
-    if (!file.is_open()) {
-        std::cerr << "Error: Unable to open MTL file." << std::endl;
-        return materialMap;
-    }
+    std::ifstream inputStream(filename, std::ifstream::in);
+    std::string nextLine;
+    std::string colour_name;
 
-    std::string line;
-    std::string currentMaterial;
-    while (std::getline(file, line)) {
-        std::istringstream iss(line);
-        std::string type;
-        iss >> type;
+    while (std::getline(inputStream, nextLine)) {
+        std::vector<std::string> line = split(nextLine, ' ');
 
-        if (type == "newmtl") {
-            iss >> currentMaterial;
-        } else if (type == "Kd") {  // Assuming diffuse color
-            float r, g, b;
-            iss >> r >> g >> b;
-
-// 验证颜色值在0到1的范围内
-            if (r < 0.0f || r > 1.0f || g < 0.0f || g > 1.0f || b < 0.0f || b > 1.0f) {
-                std::cerr << "Warning: Invalid color value detected in .mtl file!" << std::endl;
-                // 可以选择继续执行，或者根据需要处理这个错误
-            }
-
-            materialMap[currentMaterial] = std::make_tuple(
-                    static_cast<int>(r * 255 + 0.5),
-                    static_cast<int>(g * 255 + 0.5),
-                    static_cast<int>(b * 255 + 0.5)
-            );
+        if (line[0] == "newmtl") {
+            colour_name = line[1];
+        } else if (line[0] == "Kd") {
+            Colour colour(int(std::stof(line[1])*255),int(std::stof(line[2])*255),int(std::stof(line[3])*255));
+            colours.insert({colour_name, colour});
         }
     }
-
-    return materialMap;
+    inputStream.close();
+    return colours;
 }
 glm::mat3 cameraOrientation = glm::mat3(1.0f);//初始化单位矩阵
 CanvasPoint getCanvasIntersection(const glm::vec3& cameraPosition, const glm::vec3& vertexPosition, const glm::mat3& cameraOrientation, float focallength) {
@@ -596,21 +563,26 @@ CanvasPoint getCanvasIntersection(const glm::vec3& cameraPosition, const glm::ve
 }
 
 
-//void renderPointCloud(DrawingWindow &window, const std::vector<std::vector<float>>& vertices, const glm::vec3& cameraPosition, float focalLength) {
-//    for (const auto& vertexVec : vertices) {
-//        glm::vec3 vertexPosition(vertexVec[0], vertexVec[1], vertexVec[2]);
-//        CanvasPoint projectedPoint = getCanvasIntersection(cameraPosition, vertexPosition, focalLength);
-//
-//        int adjustedX = static_cast<int>(projectedPoint.x);
-//        int adjustedY = static_cast<int>(projectedPoint.y);
-//        uint32_t whiteColour = (255 << 16) + (255 << 8) + 255;  // RGB for white
-//
-//        // Bounding Check
-//        if (adjustedX >= 0 && adjustedX < window.width && adjustedY >= 0 && adjustedY < window.height) {
-//            window.setPixelColour(adjustedX, adjustedY, whiteColour);
-//        }
-//    }
-//}
+void drawPointCloud(DrawingWindow &window, glm::vec3 cameraPosition, std::vector<ModelTriangle> faces, float focalLength) {
+    window.clearPixels();
+    int scalingFactor = static_cast<int>(240);
+
+    for (int i = 0; i < faces.size(); i++) {
+        ModelTriangle face = faces[i];
+
+        for (int j = 0; j < face.vertices.size(); j++) {
+            glm::vec3 vertexPosition = face.vertices[j];
+
+            // 计算在图像平面上的投影位置，应用缩放因子
+            int x = static_cast<int>(round(focalLength * (vertexPosition.x - cameraPosition.x) /( vertexPosition.z - cameraPosition.z)*scalingFactor + (WIDTH / 2)));
+            x = WIDTH - x;
+            int y = static_cast<int>(round(focalLength * (vertexPosition.y - cameraPosition.y) / (vertexPosition.z - cameraPosition.z )*scalingFactor + (HEIGHT / 2)));
+
+            // 绘制单个白色像素
+            window.setPixelColour(x, y, (255 << 24) + (255 << 16) + (255 << 8) + 255);
+        }
+    }
+}
 //void drawLine2(DrawingWindow &window, CanvasPoint start, CanvasPoint end, uint32_t color) {
 //    float xDiff = end.x - start.x;
 //    float yDiff = end.y - start.y;
@@ -646,31 +618,39 @@ CanvasPoint getCanvasIntersection(const glm::vec3& cameraPosition, const glm::ve
 
 
 
-void renderFilledTriangles(DrawingWindow &window,
-                           const std::vector<std::vector<float>>& vertices,
-                           const std::vector<std::vector<int>>& faces,
-                           const std::vector<std::tuple<int,int,int>>& faceColours,
-                           const glm::vec3& cameraPosition,
-                           float focalLength,
-                           std::vector<std::vector<float>>& depthBuffer) {
-    // ... 函数体内容不变 ...
-    for (size_t f = 0; f < faces.size(); f++) {  // <- 使用索引循环以便同时访问faces和faceColours
-        const auto& face = faces[f];
-        std::vector<CanvasPoint> projectedVertices;
-        for (size_t i = 0; i < face.size(); ++i) {
-            const auto& vertex3D = vertices[face[i] - 1];  // OBJ indices start from 1
-            projectedVertices.push_back(getCanvasIntersection(cameraPosition, glm::vec3(vertex3D[0], vertex3D[1], vertex3D[2]),cameraOrientation, focalLength));
+void renderFilledTriangles(DrawingWindow &window, glm::vec3 cameraPosition, std::vector<ModelTriangle> faces, float focalLength, const glm::mat3& cameraOrientation) {
+    window.clearPixels();
+    int scalingFactor = static_cast<int>(240);
+    std::vector<std::vector<float>> depthBuffer(window.height, std::vector<float>(window.width, std::numeric_limits<float>::infinity()));
+
+    for (const auto& face : faces) {
+        std::vector<CanvasPoint> projectedPoints;
+
+        // 投影三角形的每个顶点
+        for (const auto& vertex : face.vertices) {
+            // 将顶点转换到相机坐标系
+            glm::vec3 cameraVertex = cameraOrientation * (vertex - cameraPosition);
+
+            // 应用透视投影
+            float x = focalLength * (cameraVertex.x) / (cameraVertex.z) * scalingFactor + (window.width / 2);
+            float y = focalLength * (cameraVertex.y) / (cameraVertex.z) * scalingFactor + (window.height / 2);
+            float depth = cameraVertex.z; // 用于深度缓冲
+
+            CanvasPoint projectedVertex(window.width - x, y, depth); // 注意这里的x坐标翻转以匹配drawWireframe函数
+            projectedPoints.push_back(projectedVertex);
         }
 
-        auto colourTuple = faceColours[f];
-        Colour fillColour(std::get<0>(colourTuple), std::get<1>(colourTuple), std::get<2>(colourTuple));  // <- 使用MTL文件中的颜色
-        Colour outlineColour = fillColour;  // <- 将轮廓颜色设置为与填充颜色相同
+        // 检查是否有三个投影的顶点
+        if (projectedPoints.size() == 3) {
+            CanvasTriangle canvasTriangle(projectedPoints[0], projectedPoints[1], projectedPoints[2]);
+            Colour fillColour = face.colour;  // 使用ModelTriangle中的颜色属性
+            Colour outlineColour = fillColour;  // 轮廓颜色与填充颜色相同
 
-        CanvasTriangle triangle(projectedVertices[0], projectedVertices[1], projectedVertices[2]);
-        fillTriangle(triangle, fillColour, outlineColour, window, depthBuffer);
+            // 填充三角形
+            fillTriangle(canvasTriangle, fillColour, outlineColour, window, depthBuffer);
+        }
     }
 }
-
 
 //void handleEvent(SDL_Event event, DrawingWindow &window) {
 //    if (event.type == SDL_KEYDOWN) {
@@ -762,30 +742,11 @@ int main() {
     float orbitRadius = 4.0f; // 相机离轨道中心的距离
     glm::vec3 orbitCenter(0.0f, 0.0f, 0.0f); // 假设轨道中心在世界坐标的原点
 
-    std::vector<std::vector<float>> vertices;
-    std::vector<std::vector<int>> faces;
-    std::vector<std::tuple<int, int, int>> faceColours;
 
-    auto materialMap = loadMTL("/Users/lil/Desktop/CG2023-main/RedNoise/cornell-box.mtl");
-    loadOBJ("/Users/lil/Desktop/CG2023-main/RedNoise/cornell-box.obj", scalingFactor, vertices, faces, faceColours,
-            materialMap);
+    std::unordered_map<std::string, Colour> materials = loadMtlFile("cornell-box.mtl");
+    std::vector<ModelTriangle> faces = loadObjFile("cornell-box.obj", 0.35, materials);
 
-    // Printing the triangle vertices
-    for (const auto &face: faces) {
-        std::cout << "Triangle:" << std::endl;
-        for (size_t i = 0; i < face.size(); ++i) {
-            const auto &vertex3D = vertices[face[i] - 1];  // OBJ indices start from 1
-            std::cout << "Vertex " << i << " in 3D: [" << vertex3D[0] << ", " << vertex3D[1] << ", " << vertex3D[2]
-                      << "]" << std::endl;
 
-            CanvasPoint projectedPoint = getCanvasIntersection(cameraPosition,
-                                                               glm::vec3(vertex3D[0], vertex3D[1], vertex3D[2]),
-                                                               cameraOrientation, focallength);
-            std::cout << "Vertex " << i << " projected in 2D: [" << projectedPoint.x << ", " << projectedPoint.y << "]"
-                      << std::endl;
-        }
-        std::cout << std::endl;
-    }
     uint32_t whiteColour = (255 << 16) + (255 << 8) + 255;  // RGB for white
 
     DrawingWindow window(WIDTH, HEIGHT, false);
@@ -828,8 +789,7 @@ int main() {
             window.clearPixels();
             depthBuffer = std::vector<std::vector<float>>(window.height, std::vector<float>(window.width,
                                                                                             std::numeric_limits<float>::infinity()));
-            renderFilledTriangles(window, vertices, faces, faceColours, cameraPosition, focallength, depthBuffer);
-            window.renderFrame();
+            renderFilledTriangles(window,cameraPosition,faces,focallength,cameraOrientation);            window.renderFrame();
             shouldRedraw = false; // 重置重绘标志
         }
 
