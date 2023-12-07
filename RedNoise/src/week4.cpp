@@ -1,4 +1,4 @@
-\#include <CanvasTriangle.h>
+#include <CanvasTriangle.h>
 #include <DrawingWindow.h>
 #include <Utils.h>
 #include <fstream>
